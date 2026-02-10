@@ -12,6 +12,7 @@
 
 #include <cstring>
 #include <cstdio>
+#include <cstdarg>
 #include <cmath>
 #include <dlfcn.h>
 #include <linux/input.h>
@@ -168,16 +169,12 @@ static void init_hooks() {
         real_read = (read_func_t)dlsym(RTLD_NEXT, "read");
 }
 
-// Detect pen input device
-// TODO: Phase 1 recon will determine actual device path on RMPP
+// Detect pen input device — "Elan marker input" on RMPP
 static bool is_pen_device(const char* path) {
-    // RMPP USI 2.0 pen — exact path TBD after device recon
-    // RM2 was /dev/input/event1 (Wacom I2C Digitizer)
-    // RMPP likely /dev/input/event0 or event1 or event2
     if (!path) return false;
-    // Placeholder: match any input event device for now
-    // Will be narrowed after Phase 1
-    return (strstr(path, "/dev/input/event") != nullptr);
+    // RMPP: Elan marker input = /dev/input/event2
+    // event0 = power key, event1 = hall sensors, event3 = touch
+    return (strcmp(path, "/dev/input/event2") == 0);
 }
 
 extern "C" int open(const char* pathname, int flags, ...) {
@@ -225,9 +222,10 @@ extern "C" ssize_t read(int fd, void* buf, size_t count) {
 
         if (ev.type != EV_ABS) continue;
 
-        if (ev.code == ABS_X || ev.code == ABS_MT_POSITION_X) {
+        // RMPP uses plain ABS_X/ABS_Y (no multitouch axes)
+        if (ev.code == ABS_X) {
             g_state.raw_x = ev.value;
-        } else if (ev.code == ABS_Y || ev.code == ABS_MT_POSITION_Y) {
+        } else if (ev.code == ABS_Y) {
             g_state.raw_y = ev.value;
 
             // Apply filter on Y (we now have both X and Y)
@@ -246,8 +244,7 @@ extern "C" ssize_t read(int fd, void* buf, size_t count) {
                     // Walk back to find the X event in this batch
                     for (size_t j = 0; j <= i; j++) {
                         if (events[i-j].type == EV_ABS &&
-                            (events[i-j].code == ABS_X ||
-                             events[i-j].code == ABS_MT_POSITION_X)) {
+                            events[i-j].code == ABS_X) {
                             events[i-j].value = (int)out_x;
                             break;
                         }
@@ -261,8 +258,7 @@ extern "C" ssize_t read(int fd, void* buf, size_t count) {
                                    out_x, out_y, g_state);
                     for (size_t j = 0; j <= i; j++) {
                         if (events[i-j].type == EV_ABS &&
-                            (events[i-j].code == ABS_X ||
-                             events[i-j].code == ABS_MT_POSITION_X)) {
+                            events[i-j].code == ABS_X) {
                             events[i-j].value = (int)out_x;
                             break;
                         }
@@ -273,22 +269,27 @@ extern "C" ssize_t read(int fd, void* buf, size_t count) {
                 case ALG_OFF:
                     break;
             }
-        } else if (ev.code == ABS_PRESSURE ||
-                   ev.code == ABS_MT_PRESSURE) {
+        } else if (ev.code == ABS_PRESSURE) {
             g_state.raw_pressure = ev.value;
             // TODO: pressure smoothing
         }
     }
 
-    // Reset string pull on pen lift (SYN_REPORT with no touch)
+    // Reset filters on pen lift
+    // RMPP Elan digitizer has NO BTN_TOUCH events.
+    // Detect lift via: large gap between SYN_REPORTs (>50ms),
+    // or pressure dropping significantly, or only tilt/distance
+    // events without X/Y (hover-only events seen at end of stroke).
+    // For now: reset on pressure dropping below threshold
     for (size_t i = 0; i < num_events; i++) {
-        if (events[i].type == EV_KEY && events[i].code == BTN_TOUCH &&
-            events[i].value == 0) {
-            // Pen lifted — reset filter state
-            g_state.string_initialized = false;
-            g_state.one_euro_initialized = false;
-            g_state.buf_count = 0;
-            g_state.buf_idx = 0;
+        if (events[i].type == EV_ABS && events[i].code == ABS_PRESSURE) {
+            if (events[i].value < 100) {
+                // Pen likely lifted — reset filter state
+                g_state.string_initialized = false;
+                g_state.one_euro_initialized = false;
+                g_state.buf_count = 0;
+                g_state.buf_idx = 0;
+            }
         }
     }
 

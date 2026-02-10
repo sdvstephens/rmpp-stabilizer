@@ -107,9 +107,26 @@ static bool g_active = false;
 // Config file reader
 // ============================================================
 
+// Derive algorithm params from strength value
+static void derive_params() {
+    double s = g_config.strength;
+    g_config.moving_avg_window = 4 + (int)(s * 28);
+    g_config.gaussian_sigma = 50.0 + s * 450.0;
+    g_config.string_length = 100.0 + s * 900.0;
+    g_config.one_euro_mincutoff = 1.5 - s * 1.3;
+    g_config.one_euro_beta = 0.001 + s * 0.01;
+}
+
 static void load_config() {
+    // Always derive params from defaults first
+    derive_params();
+
     FILE* f = fopen(CONFIG_PATH, "r");
-    if (!f) return;
+    if (!f) {
+        fprintf(stderr, "[stabilizer] No config file, using defaults: alg=%d strength=%.2f string_len=%.1f\n",
+                g_config.algorithm, g_config.strength, g_config.string_length);
+        return;
+    }
 
     char line[256];
     while (fgets(line, sizeof(line), f)) {
@@ -126,12 +143,6 @@ static void load_config() {
                 g_config.strength = atof(val);
                 if (g_config.strength < 0) g_config.strength = 0;
                 if (g_config.strength > 1) g_config.strength = 1;
-                // Derive algorithm params from strength
-                g_config.moving_avg_window = 4 + (int)(g_config.strength * 28);
-                g_config.gaussian_sigma = 10.0 + g_config.strength * 90.0;
-                g_config.string_length = 5.0 + g_config.strength * 60.0;
-                g_config.one_euro_mincutoff = 1.5 - g_config.strength * 1.3;
-                g_config.one_euro_beta = 0.001 + g_config.strength * 0.01;
             }
             else if (strcmp(key, "pressure_smoothing") == 0) {
                 g_config.pressure_smoothing = (strcmp(val, "true") == 0);
@@ -142,6 +153,8 @@ static void load_config() {
         }
     }
     fclose(f);
+    // Re-derive params with any values from config
+    derive_params();
     fprintf(stderr, "[stabilizer] Config: alg=%d strength=%.2f string_len=%.1f\n",
             g_config.algorithm, g_config.strength, g_config.string_length);
 }
@@ -459,6 +472,14 @@ extern "C" ssize_t read(int fd, void* buf, size_t count) {
                 // Apply filter
                 double fx, fy, fp;
                 apply_filter(rx, ry, rp, ts, fx, fy, fp);
+
+                // Debug: log every 50th event to show filtering is working
+                static int debug_counter = 0;
+                if (debug_counter++ % 50 == 0) {
+                    fprintf(stderr, "[stab] raw=(%d,%d) filtered=(%.0f,%.0f) delta=(%.1f,%.1f)\n",
+                            g_state.raw_x, g_state.raw_y, fx, fy,
+                            fx - rx, fy - ry);
+                }
 
                 // Write filtered values back into event buffer
                 for (size_t j = 0; j <= i; j++) {

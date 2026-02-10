@@ -13,13 +13,21 @@ Intercepts pen input events before xochitl processes them and applies configurab
 
 - **Moving Average** — Simple N-sample window smoothing. Removes jitter.
 - **String Pull** — Virtual "string" between pen and output. Produces naturally smooth curves with minimal latency. This is what makes apps like GoodNotes feel magic.
-- **1€ Filter** — Speed-adaptive smoothing. Heavy smoothing for slow/precise strokes, minimal smoothing for fast gestures. Best of both worlds.
+- **1€ Filter** — Speed-adaptive smoothing (Casiez et al. 2012). Heavy smoothing for slow/precise strokes, minimal smoothing for fast gestures.
 
 ## Requirements
 
 - reMarkable Paper Pro with Developer Mode enabled
 - Firmware 3.22.x (tested on 3.22.4.2)
 - SSH access via USB (`ssh root@10.11.99.1`)
+
+## Technical Details
+
+- **Pen device:** "Elan marker input" at `/dev/input/event2` (SPI-connected)
+- **xochitl:** Dynamically linked against Qt6 (6.8.2) — LD_PRELOAD confirmed working
+- **Pen axes:** ABS_X, ABS_Y, ABS_PRESSURE (24), ABS_DISTANCE (25), ABS_TILT_X (26), ABS_TILT_Y (27)
+- **Sample rate:** ~500Hz (~2ms between events)
+- **No BTN_TOUCH:** Pen lift detected via pressure threshold
 
 ## Installation
 
@@ -58,15 +66,18 @@ Changes take effect on next xochitl restart.
 
 Uses `LD_PRELOAD` to intercept pen input device reads before xochitl sees them. The smoothing filter runs inline with negligible overhead (<1ms typical). No modification to xochitl or system files required.
 
+Inspired by [recept](https://github.com/funkey/recept) (RM2 line smoothing) and [Krita's stabilizer](https://github.com/KDE/krita) algorithms.
+
 ## Status
 
-🚧 **In Development** — Phase 1 (device reconnaissance)
+🚧 **In Development** — Phase 2 (cross-compilation & device testing)
 
 ## Credits
 
-- Inspired by [recept](https://github.com/funkey/recept) (RM2 line smoothing)
-- 1€ Filter based on [Casiez et al. 2012](https://cristal.univ-lille.fr/~casiez/1euro/)
-- xovi framework by [@asivery](https://github.com/asivery/xovi)
+- [recept](https://github.com/funkey/recept) — RM2 line smoothing via LD_PRELOAD
+- [Krita](https://github.com/KDE/krita) — Open source stabilizer algorithm reference
+- 1€ Filter — [Casiez et al. 2012](https://cristal.univ-lille.fr/~casiez/1euro/)
+- [xovi](https://github.com/asivery/xovi) framework by @asivery
 
 ## License
 

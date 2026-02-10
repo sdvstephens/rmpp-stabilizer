@@ -1,0 +1,18 @@
+# Build artifacts
+*.so
+*.o
+
+# Attack plan (local only)
+ATTACK_PLAN.md
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Precompiled binaries (until we have releases)
+precompiled/
